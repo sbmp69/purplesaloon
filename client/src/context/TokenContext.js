@@ -62,29 +62,39 @@ const TokenProvider = ({ children }) => {
     };
   }, []);
 
-  // Get the next token number using the database function
+  // Get the next sequential token number
   const getTokenNumber = async (gender) => {
     try {
+      // Get the highest token number from the database
       const { data, error } = await supabase
-        .rpc('increment_token', { gender_type: gender });
+        .from(`${gender}_tokens`)
+        .select('token_number')
+        .order('token_number', { ascending: false })
+        .limit(1)
+        .single();
       
-      if (error) throw error;
-      return data;
+      if (error && error.code !== 'PGRST116') throw error; // PGRST116 means no rows returned
+      
+      // If no tokens exist yet, start from 1, otherwise increment the highest number
+      const nextTokenNumber = data ? data.token_number + 1 : 1;
+      console.log(`Next ${gender} token number:`, nextTokenNumber);
+      return nextTokenNumber;
     } catch (err) {
       console.error('Error getting token number:', err);
-      throw err;
+      // Fallback to random number if there's an error
+      return Math.floor(Math.random() * 1000) + 1;
     }
   };
 
   // Add a new token after OTP verification
   const addToken = async (tokenData) => {
-    const { gender, service, name, mobile, userId } = tokenData;
+    const { gender, service, name, mobile } = tokenData;
     const tableName = `${gender}_tokens`;
     
     try {
       setLoading(true);
       
-      // Get the next token number from the sequence
+      // Get the next token number
       const tokenNumber = await getTokenNumber(gender);
       
       // Insert the new token
@@ -96,7 +106,8 @@ const TokenProvider = ({ children }) => {
           mobile, 
           service, 
           status: 'waiting',
-          user_id: userId
+          otp: '123456',
+          otp_verified: true
         }])
         .select()
         .single();
@@ -159,52 +170,72 @@ const TokenProvider = ({ children }) => {
     }
   };
 
-  // Serve the next token in the queue
-  const serveNextToken = async (gender) => {
-    const tableName = `${gender}_tokens`;
-    
+  // Get waiting tokens for a specific gender
+  const getWaitingTokens = async (gender) => {
     try {
-      setLoading(true);
+      const { data, error } = await supabase
+        .from(`${gender}_tokens`)
+        .select('*')
+        .eq('status', 'waiting')
+        .order('token_number', { ascending: true });
       
-      // Start a transaction to ensure data consistency
-      const { data: nextToken, error: nextError } = await supabase.rpc('serve_next_token', {
-        p_gender: gender
-      });
-      
-      if (nextError) throw nextError;
-      
-      // Refresh the tokens list
-      await fetchTokens();
-      
-      return { 
-        success: true, 
-        token: nextToken ? { ...nextToken, gender } : null 
-      };
-      
+      if (error) throw error;
+      return data.map(token => ({ ...token, gender }));
     } catch (err) {
-      console.error('Error serving next token:', err);
-      setError(err.message);
-      return { 
-        success: false, 
-        error: err.message 
-      };
-    } finally {
-      setLoading(false);
+      console.error('Error getting waiting tokens:', err);
+      throw err;
     }
   };
 
-  // Mark a token as served (for manual serving)
+  // Update token status
+  const updateTokenStatus = async (tokenId, gender, status) => {
+    try {
+      const { data, error } = await supabase
+        .from(`${gender}_tokens`)
+        .update({ status })
+        .eq('id', tokenId)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      // Update local state
+      setTokens(prev => 
+        prev.map(t => 
+          t.id === tokenId ? { ...t, status, ...data } : t
+        )
+      );
+      
+      return { ...data, gender };
+    } catch (err) {
+      console.error('Error updating token status:', err);
+      throw err;
+    }
+  };
+
+  // Serve a specific token
   const serveToken = async (tokenId, gender) => {
     const tableName = `${gender}_tokens`;
     
     try {
       setLoading(true);
       
-      // Update the token status
+      // First, update the current serving token to 'served' if exists
+      const { data: currentServing } = await supabase
+        .from(tableName)
+        .select('id')
+        .eq('status', 'serving')
+        .maybeSingle();
+      
+      if (currentServing) {
+        await updateTokenStatus(currentServing.id, gender, 'served');
+      }
+      
+      // Then update the selected token to 'serving'
       const { data, error } = await supabase
         .from(tableName)
         .update({ 
-          status: 'served',
+          status: 'serving',
           served_at: new Date().toISOString()
         })
         .eq('id', tokenId)
@@ -290,6 +321,35 @@ const TokenProvider = ({ children }) => {
       console.error('Error getting recent token:', err);
       setError(err.message);
       return null;
+    }
+  };
+
+  // Serve the next token in the queue
+  const serveNextToken = async (gender) => {
+    try {
+      // Get the next waiting token for the specified gender
+      const { data: nextToken, error: tokenError } = await supabase
+        .from(`${gender}_tokens`)
+        .select('*')
+        .eq('status', 'waiting')
+        .order('token_number', { ascending: true })
+        .limit(1)
+        .single();
+
+      if (tokenError && tokenError.code !== 'PGRST116') {
+        throw tokenError;
+      }
+
+      if (!nextToken) {
+        return { success: false, message: 'No tokens in the queue' };
+      }
+
+      // Serve the next token
+      return await serveToken(nextToken.id, gender);
+    } catch (err) {
+      console.error('Error serving next token:', err);
+      setError(err.message);
+      return { success: false, error: err.message };
     }
   };
 
