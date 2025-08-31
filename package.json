@@ -1,0 +1,21 @@
+{
+  "name": "salon-token-system",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MVP for salon token management webapp",
+  "scripts": {
+    "start": "npm --prefix client start",
+    "client": "npm --prefix client start",
+    "build": "npm --prefix client run build",
+    "install-client": "npm --prefix client install"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "crypto": "^1.0.1",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "http": "^0.0.1-security",
+    "mongoose": "^8.17.1",
+    "socket.io": "^4.8.1"
+  }
+}
