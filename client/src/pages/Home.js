@@ -24,15 +24,44 @@ const Home = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const navigate = useNavigate();
   const location = useLocation();
-  const { getCurrentToken, getRecentToken } = useContext(TokenContext);
+  const { tokens, getCurrentToken, getRecentToken } = useContext(TokenContext);
   const [animate, setAnimate] = useState(false);
   const [selectedGender, setSelectedGender] = useState(null);
   
-  // Get current and recent tokens for both genders
-  const currentMaleToken = getCurrentToken('male');
-  const currentFemaleToken = getCurrentToken('female');
-  const recentMaleToken = getRecentToken('male');
-  const recentFemaleToken = getRecentToken('female');
+  // Local state to hold resolved async values
+  const [currentTokens, setCurrentTokens] = useState({ male: null, female: null });
+  const [recentTokens, setRecentTokens] = useState({ male: null, female: null });
+
+  // Fetch current and recent tokens for both genders
+  useEffect(() => {
+    let isMounted = true;
+    const load = async () => {
+      try {
+        const [cm, cf, rm, rf] = await Promise.all([
+          getCurrentToken('male'),
+          getCurrentToken('female'),
+          getRecentToken('male'),
+          getRecentToken('female')
+        ]);
+
+        if (!isMounted) return;
+        setCurrentTokens({
+          male: cm ? cm.token_number : null,
+          female: cf ? cf.token_number : null
+        });
+        setRecentTokens({
+          male: rm || null,
+          female: rf || null
+        });
+      } catch (e) {
+        // ignore; TokenContext logs errors
+      }
+    };
+    load();
+    return () => {
+      isMounted = false;
+    };
+  }, [getCurrentToken, getRecentToken, tokens]);
 
   useEffect(() => {
     setAnimate(true);
@@ -184,14 +213,14 @@ const Home = () => {
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary">Men's Current</Typography>
                   <Typography variant="h5" color="primary">
-                    {currentMaleToken > 0 ? `M${currentMaleToken}` : '--'}
+                    {currentTokens.male ? `M${currentTokens.male}` : '--'}
                   </Typography>
                 </Box>
               </Box>
               <Box sx={{ textAlign: 'right' }}>
                 <Typography variant="caption" color="text.secondary" display="block">Last Issued</Typography>
                 <Typography variant="subtitle1">
-                  {recentMaleToken ? `M${recentMaleToken.tokenNumber}` : '--'}
+                  {recentTokens.male ? `M${recentTokens.male.token_number}` : '--'}
                 </Typography>
               </Box>
             </Box>
@@ -211,14 +240,14 @@ const Home = () => {
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary">Women's Current</Typography>
                   <Typography variant="h5" color="secondary">
-                    {currentFemaleToken > 0 ? `F${currentFemaleToken}` : '--'}
+                    {currentTokens.female ? `F${currentTokens.female}` : '--'}
                   </Typography>
                 </Box>
               </Box>
               <Box sx={{ textAlign: 'right' }}>
                 <Typography variant="caption" color="text.secondary" display="block">Last Issued</Typography>
                 <Typography variant="subtitle1">
-                  {recentFemaleToken ? `F${recentFemaleToken.tokenNumber}` : '--'}
+                  {recentTokens.female ? `F${recentTokens.female.token_number}` : '--'}
                 </Typography>
               </Box>
             </Box>
@@ -231,8 +260,8 @@ const Home = () => {
   // Render selected gender view
   const renderSelectedGenderView = () => {
     const isMale = selectedGender === 'male';
-    const currentToken = isMale ? currentMaleToken : currentFemaleToken;
-    const recentToken = isMale ? recentMaleToken : recentFemaleToken;
+    const currentToken = isMale ? currentTokens.male : currentTokens.female;
+    const recentToken = isMale ? recentTokens.male : recentTokens.female;
     const gradient = isMale 
       ? 'linear-gradient(45deg, #2196F3 30%, #21CBF3 90%)' 
       : 'linear-gradient(45deg, #FF4081 30%, #F50057 90%)';
@@ -293,11 +322,11 @@ const Home = () => {
                   WebkitBackgroundClip: 'text',
                   WebkitTextFillColor: 'transparent'
                 }}>
-                  {isMale ? 'M' : 'F'}{currentToken > 0 ? currentToken : '--'}
+                  {isMale ? 'M' : 'F'}{currentToken ? currentToken : '--'}
                 </Typography>
                 <Typography variant="body1" color="text.secondary">
-                  {currentToken > 0 
-                    ? `Token ${currentToken} is being served` 
+                  {currentToken
+                    ? `Token ${currentToken} is being served`
                     : 'No token is currently being served'}
                 </Typography>
               </Box>
@@ -349,7 +378,7 @@ const Home = () => {
                         WebkitBackgroundClip: 'text',
                         WebkitTextFillColor: 'transparent'
                       }}>
-                        {isMale ? 'M' : 'F'}{recentToken.tokenNumber}
+                        {isMale ? 'M' : 'F'}{recentToken.token_number}
                       </Typography>
                       <Typography variant="body1" color="text.primary" sx={{ fontWeight: 500 }}>
                         {recentToken.service}
@@ -426,7 +455,7 @@ const Home = () => {
               <Box>
                 <Typography variant="caption" display="block" color="text.secondary">Current</Typography>
                 <Typography variant="h6" color="primary">
-                  {currentMaleToken > 0 ? `M${currentMaleToken}` : '--'}
+                  {currentTokens.male ? `M${currentTokens.male}` : '--'}
                 </Typography>
               </Box>
             </Box>
@@ -444,7 +473,7 @@ const Home = () => {
               <Box>
                 <Typography variant="caption" display="block" color="text.secondary">Last</Typography>
                 <Typography variant="h6" color="text.primary">
-                  {recentMaleToken ? `M${recentMaleToken.tokenNumber}` : '--'}
+                  {recentTokens.male ? `M${recentTokens.male.token_number}` : '--'}
                 </Typography>
               </Box>
             </Box>
@@ -464,7 +493,7 @@ const Home = () => {
               <Box>
                 <Typography variant="caption" display="block" color="text.secondary">Current</Typography>
                 <Typography variant="h6" color="secondary">
-                  {currentFemaleToken > 0 ? `F${currentFemaleToken}` : '--'}
+                  {currentTokens.female ? `F${currentTokens.female}` : '--'}
                 </Typography>
               </Box>
             </Box>
@@ -482,7 +511,7 @@ const Home = () => {
               <Box>
                 <Typography variant="caption" display="block" color="text.secondary">Last</Typography>
                 <Typography variant="h6" color="text.primary">
-                  {recentFemaleToken ? `F${recentFemaleToken.tokenNumber}` : '--'}
+                  {recentTokens.female ? `F${recentTokens.female.token_number}` : '--'}
                 </Typography>
               </Box>
             </Box>
@@ -508,7 +537,7 @@ const Home = () => {
         </Container>
       </Fade>
     </Layout>
-  );
+  );  
 };
 
 export default Home;
