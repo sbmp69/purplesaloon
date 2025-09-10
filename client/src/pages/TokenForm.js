@@ -16,6 +16,23 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { TokenContext } from '../context/TokenContext';
 import { supabase } from '../utils/supabase';
 import { Card, CardContent, Divider, useTheme } from '@mui/material';
+import axios from 'axios';
+import { initializeApp, getApps } from 'firebase/app';
+import { getAuth, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
+
+/*
+ Test instructions (OTP flow)
+ -----------------------------------
+ 1) Enter your Name and a valid 10‑digit Indian mobile number.
+ 2) Click "Send OTP" to receive the SMS code.
+ 3) Enter the 6‑digit OTP and click "Verify & Get Token".
+ 4) On success, a token row is created in Supabase and you navigate to the success page.
+
+ Prerequisites
+ - client/.env has Firebase values set (REACT_APP_FIREBASE_*) and REACT_APP_USE_DEV_OTP=false.
+ - Firebase Console → Authentication → Sign-in method → Phone is enabled.
+ - Firebase Console → Authentication → Settings → Authorized domains include localhost (and your prod domain).
+*/
 
 const TokenForm = () => {
   const navigate = useNavigate();
@@ -33,7 +50,9 @@ const TokenForm = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
   const [session, setSession] = useState(null);
+  const [confirmationResult, setConfirmationResult] = useState(null);
   const [currentServingToken, setCurrentServingToken] = useState(null);
+  const [useServerOtp, setUseServerOtp] = useState(false);
   const theme = useTheme();
   
   // Subscribe to real-time updates for the current serving token
@@ -135,8 +154,8 @@ const TokenForm = () => {
       return;
     }
     
-    // Bypass OTP in development
-    if (process.env.NODE_ENV === 'development' || process.env.REACT_APP_USE_DEV_OTP === 'true') {
+    // Bypass OTP only if explicitly enabled
+    if (process.env.REACT_APP_USE_DEV_OTP === 'true') {
       setOtpSent(true);
       setSnackbar({
         open: true,
@@ -146,19 +165,6 @@ const TokenForm = () => {
       return;
     }
     
-    // Debug: Log Supabase configuration
-    const debugSupabaseUrl = process.env.REACT_APP_SUPABASE_URL || 'https://dfcuhovsqrwvnaddngij.supabase.co';
-    const debugAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRmY3Vob3ZzcXJ3dm5hZGRuZ2lqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ2MzcyOTIsImV4cCI6MjA3MDIxMzI5Mn0.F8RSmgSsLTVbSwvimO_6SE7d3u2uXulCdsJ7ajmIOqY';
-    
-    console.log('Using Supabase URL:', debugSupabaseUrl);
-    console.log('Using Supabase Anon Key:', debugAnonKey ? 'Present' : 'Missing');
-    
-    // Log the supabase client configuration
-    console.log('Supabase client config:', {
-      url: debugSupabaseUrl,
-      anonKey: debugAnonKey ? '***' + debugAnonKey.slice(-4) : 'Missing'
-    });
-
     try {
       setIsLoading(true);
       setErrorMessage('');
@@ -171,54 +177,31 @@ const TokenForm = () => {
         throw new Error('Please enter a valid 10-digit Indian mobile number');
       }
       
-      console.log('Formatted phone number:', formattedPhone);
-      console.log('Phone number validation passed');
-      
-      console.log('Attempting to send OTP to:', formattedPhone);
-      
-      console.log('Sending OTP to:', formattedPhone);
-      
-      console.log('Supabase client config:', {
-        url: supabase.supabaseUrl,
-        key: process.env.REACT_APP_SUPABASE_ANON_KEY ? 'Present' : 'Missing'
-      });
-      
-      // Send OTP using Supabase Auth
-      console.log('Initiating OTP request to Supabase...');
-      const { data, error } = await supabase.auth.signInWithOtp({
-        phone: formattedPhone,
-        options: {
-          shouldCreateUser: true,
-          data: {
-            name: formData.name,
-            phone: formattedPhone,
-            gender,
-            service
-          },
-          channel: 'sms'
-        }
-      });
-      
-      console.log('Supabase Auth response:', JSON.stringify({
-        data: data ? 'OTP sent successfully' : 'No data in response',
-        error: error ? error.message : 'No error',
-        timestamp: new Date().toISOString()
-      }, null, 2));
+      // Initialize Firebase Auth
+      const firebaseConfig = {
+        apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+        authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+        projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+        appId: process.env.REACT_APP_FIREBASE_APP_ID,
+        messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID
+      };
+      const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+      const auth = getAuth(app);
 
-      if (error) {
-        console.error('Supabase Auth Error:', error);
-        
-        // Handle specific Twilio errors
-        if (error.message.includes('Twilio: Invalid phone number')) {
-          throw new Error('Please enter a valid mobile number');
-        } else if (error.message.includes('Twilio: Unverified phone number')) {
-          throw new Error('This number is not verified in Twilio trial account. Please use a verified number.');
-        } else if (error.message.includes('Twilio: Invalid Access Token')) {
-          throw new Error('Authentication error with SMS service. Please try again later.');
-        } else {
-          throw error;
-        }
+      // Setup invisible reCAPTCHA once (use element instead of ID; ensure it's in DOM)
+      const recaptchaContainer = document.getElementById('recaptcha-container');
+      if (!recaptchaContainer) {
+        throw new Error('reCAPTCHA container missing from DOM');
       }
+      if (!window.recaptchaVerifier) {
+        window.recaptchaVerifier = new RecaptchaVerifier(auth, recaptchaContainer, { size: 'invisible' });
+        try { await window.recaptchaVerifier.render(); } catch {}
+      }
+      const appVerifier = window.recaptchaVerifier;
+
+      // Send OTP via Firebase
+      const result = await signInWithPhoneNumber(auth, formattedPhone, appVerifier);
+      setConfirmationResult(result);
       
       setOtpSent(true);
       setSnackbar({ 
@@ -229,11 +212,41 @@ const TokenForm = () => {
       
     } catch (error) {
       console.error('Error in handleSendOTP:', error);
-      setSnackbar({
-        open: true,
-        message: error.message || 'Failed to send OTP. Please try again.',
-        severity: 'error'
-      });
+      // Reset state and reCAPTCHA on error so the next attempt starts cleanly
+      try {
+        window.recaptchaVerifier?.clear();
+      } catch {}
+      window.recaptchaVerifier = undefined;
+      setConfirmationResult(null);
+      setOtpSent(false);
+
+      // Friendlier, more actionable messages
+      const isEnterprise401 = typeof error?.message === 'string' && error.message.includes('recaptcha') && error.message.includes('401');
+      const friendly =
+        (error?.code === 'auth/billing-not-enabled' || isEnterprise401)
+          ? 'Firebase blocked OTP due to reCAPTCHA Enterprise. Attempting fallback via server SMS...'
+          : (error?.code === 'auth/too-many-requests')
+          ? 'Too many attempts. Please wait a few minutes or try a different number/device, or add a Firebase test number for development.'
+          : (error?.message || 'Failed to send OTP. Please try again.');
+      setSnackbar({ open: true, message: friendly, severity: 'error' });
+
+      // Server OTP fallback for Enterprise/billing issues
+      if (error?.code === 'auth/billing-not-enabled' || isEnterprise401) {
+        try {
+          const formattedPhone = formatPhoneNumber(formData.mobile);
+          const resp = await axios.post('/api/otp/send', { mobile: formattedPhone });
+          if (resp?.data?.success) {
+            setUseServerOtp(true);
+            setOtpSent(true);
+            setSnackbar({ open: true, message: 'OTP sent via SMS (server fallback). Please check your phone.', severity: 'success' });
+          } else {
+            setSnackbar({ open: true, message: 'Fallback SMS failed. Please try again later.', severity: 'error' });
+          }
+        } catch (fallbackErr) {
+          console.error('Server fallback OTP failed:', fallbackErr);
+          setSnackbar({ open: true, message: fallbackErr?.response?.data?.error || 'Fallback SMS failed. Please try again later.', severity: 'error' });
+        }
+      }
     } finally {
       setIsLoading(false);
     }
@@ -242,8 +255,8 @@ const TokenForm = () => {
   const handleVerifyOTP = async (e) => {
     e.preventDefault();
     
-    // Bypass OTP verification in development
-    if (process.env.NODE_ENV === 'development' || process.env.REACT_APP_USE_DEV_OTP === 'true') {
+    // Bypass OTP verification only if explicitly enabled
+    if (process.env.REACT_APP_USE_DEV_OTP === 'true') {
       // Proceed with form submission
       const tokenData = {
         name: formData.name,
@@ -281,184 +294,42 @@ const TokenForm = () => {
       setErrorMessage('Please enter the OTP');
       return;
     }
-    
-    // Development mode: Verify OTP locally
-    if (process.env.NODE_ENV === 'development' || process.env.REACT_APP_USE_DEV_OTP === 'true') {
-      setIsVerifying(true);
-      try {
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // In development, any 6-digit OTP will work
-        if (formData.otp.length === 6 && /^\d+$/.test(formData.otp)) {
-          // Proceed with form submission
-          const tokenData = {
-            name: formData.name,
-            mobile: formData.mobile,
-            gender,
-            service,
-            status: 'waiting',
-            token_number: Math.floor(100 + Math.random() * 900) // Random token number for dev
-          };
-          
-          // Call your token creation logic here
-          const { token, error } = await addToken(tokenData);
-          
-          if (error) throw error;
-          
-          navigate('/success', { 
-            state: { 
-              tokenNumber: token.token_number,
-              name: tokenData.name,
-              service: tokenData.service,
-              gender: tokenData.gender
-            } 
-          });
-        } else {
-          throw new Error('Invalid OTP. Please enter a 6-digit number.');
-        }
-      } catch (error) {
-        console.error('Error in development OTP verification:', error);
-        setSnackbar({
-          open: true,
-          message: error.message || 'Failed to verify OTP',
-          severity: 'error'
-        });
-      } finally {
-        setIsVerifying(false);
-      }
-      return;
-    }
-    
-    // Development mode: Verify OTP locally
-    if (process.env.NODE_ENV === 'development') {
-      setIsVerifying(true);
-      try {
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // In development, any 6-digit OTP will work
-        if (formData.otp.length === 6 && /^\d+$/.test(formData.otp)) {
-          // Proceed with form submission
-          const tokenData = {
-            name: formData.name,
-            mobile: formData.mobile,
-            gender,
-            service,
-            status: 'waiting',
-            token_number: Math.floor(100 + Math.random() * 900) // Random token number for dev
-          };
-          
-          // Call your token creation logic here
-          const { token, error } = await addToken(tokenData);
-          
-          if (error) throw error;
-          
-          navigate('/success', { 
-            state: { 
-              tokenNumber: token.token_number,
-              name: tokenData.name,
-              service: tokenData.service,
-              gender: tokenData.gender
-            } 
-          });
-        } else {
-          throw new Error('Invalid OTP. Please enter a 6-digit number.');
-        }
-      } catch (error) {
-        console.error('Error in development OTP verification:', error);
-        setSnackbar({
-          open: true,
-          message: error.message || 'Failed to verify OTP',
-          severity: 'error'
-        });
-      } finally {
-        setIsVerifying(false);
-      }
-      return;
-    }
-    
-    // Development mode: Verify against the generated OTP
-    if (isDevelopment) {
-      setIsVerifying(true);
-      try {
-        if (formData.otp === devOtp) {
-          // Create token data
-          const tokenData = {
-            name: formData.name,
-            mobile: formData.mobile,
-            gender,
-            service,
-            status: 'waiting',
-            token_number: Math.floor(100 + Math.random() * 900) // Random token number for dev
-          };
-          
-          // Add token to the queue
-          const { token, error } = await addToken(tokenData);
-          
-          if (error) throw error;
-          
-          // Navigate to success page
-          navigate('/success', { 
-            state: { 
-              tokenNumber: token.token_number,
-              name: tokenData.name,
-              service: tokenData.service,
-              gender: tokenData.gender
-            } 
-          });
-        } else {
-          throw new Error('Invalid OTP. Please check and try again.');
-        }
-      } catch (error) {
-        console.error('Error in development OTP verification:', error);
-        setSnackbar({
-          open: true,
-          message: error.message || 'Failed to verify OTP',
-          severity: 'error'
-        });
-      } finally {
-        setIsVerifying(false);
-      }
-      return;
-    }
-
     try {
       setIsVerifying(true);
       setErrorMessage('');
       
-      // Verify OTP with Supabase
-      const formattedPhone = formatPhoneNumber(formData.mobile);
-      const { data, error } = await supabase.auth.verifyOtp({
-        phone: formattedPhone,
-        token: formData.otp,
-        type: 'sms'
-      });
+      if (useServerOtp) {
+        // Verify against server
+        const formattedPhone = formatPhoneNumber(formData.mobile);
+        const resp = await axios.post('/api/verify-otp', { phone: formattedPhone, otp: formData.otp });
+        if (!resp?.data?.success) {
+          throw new Error(resp?.data?.error || 'Invalid or expired OTP');
+        }
+      } else {
+        // Verify OTP via Firebase
+        if (!confirmationResult) {
+          throw new Error('OTP session expired. Please resend OTP.');
+        }
+        await confirmationResult.confirm(formData.otp);
+      }
 
-      if (error) throw error;
-
-      // Get the user session
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-      
-      // Create the token using the authenticated user's ID
+      // Create the token after successful OTP verification
       const { token, error: tokenError } = await addToken({
         gender,
         service,
         name: formData.name,
-        mobile: formData.mobile,
-        userId: session?.user?.id
+        mobile: formData.mobile
       });
 
       if (tokenError) throw tokenError;
       
-      // Navigate to success page with token data
-      navigate('/token-success', { 
+      // Navigate to success page (existing success route)
+      navigate('/success', { 
         state: { 
-          token: token,
-          gender,
-          service,
-          name: formData.name
+          tokenNumber: token.token_number,
+          name: formData.name,
+          service: service,
+          gender: gender
         } 
       });
       
@@ -555,6 +426,9 @@ const TokenForm = () => {
             </Alert>
           </Snackbar>
           
+          {/* Persistent reCAPTCHA container to prevent DOM removal issues */}
+          <div id="recaptcha-container" style={{ minHeight: 1 }} />
+
           {!otpSent ? (
             <>
               <TextField

@@ -4,6 +4,7 @@ const http = require('http');
 const cors = require('cors');
 const { Server } = require('socket.io');
 const { createClient } = require('@supabase/supabase-js');
+const crypto = require('crypto');
 
 const app = express();
 
@@ -112,26 +113,15 @@ app.get('/api/tokens', async (req, res) => {
     if (error) throw error;
 
     res.json(data);
-    const tokens = await Token.find({ served: false }).sort({ tokenNumber: 1 }).exec();
-    res.json(tokens);
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Serve next token (admin)
-app.post('/api/token/serve', async (req, res) => {
-  try {
-    const { tokenNumber } = req.body;
-    const token = await Token.findOneAndUpdate({ tokenNumber }, { served: true }, { new: true });
-    if (!token) return res.status(404).json({ error: 'Token not found' });
-
-    io.emit('token-served', tokenNumber);
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
+// Serve next token (admin) - disabled (Token model not configured)
+// app.post('/api/token/serve', async (req, res) => {
+//   return res.status(501).json({ error: 'Not implemented' });
+// });
 
 // OTP send
 app.post('/api/otp/send', (req, res) => {
@@ -144,82 +134,43 @@ app.post('/api/otp/send', (req, res) => {
   res.json({ success: true, message: 'OTP sent', code }); // Expose code for MVP/testing
 });
 
-// OTP Verification Endpoint
+// OTP Verification Endpoint (uses in-memory store set in /api/otp/send)
 app.post('/api/verify-otp', async (req, res) => {
   try {
-    const { phone, otp } = req.body;
-    
+    const phone = req.body.phone || req.body.mobile; // accept either key
+    const { otp } = req.body;
+
     if (!phone || !otp) {
-      return res.status(400).json({ error: 'Phone number and OTP are required' });
+      return res.status(400).json({ success: false, error: 'Phone number and OTP are required' });
     }
 
-    console.log('Verifying OTP for phone:', phone);
-    
-    // In development mode, accept any 6-digit OTP
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Development mode: Bypassing OTP verification');
-      return res.json({ 
-        success: true,
-        message: 'Development mode: OTP verification bypassed' 
-      });
+    const record = otpStore.get(phone);
+    if (!record) {
+      return res.status(400).json({ success: false, error: 'No OTP requested or it has expired' });
     }
-    
-    // In production, verify with Supabase
-    try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        phone,
-        token: otp,
-        type: 'sms'
-      });
-      
-      if (error) {
-        console.error('Supabase OTP verification error:', error);
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Invalid or expired OTP',
-          details: error.message
-        });
-      }
-      
-      console.log('OTP verified successfully for phone:', phone);
-      res.json({ 
-        success: true,
-        message: 'OTP verified successfully',
-        session: data
-      });
-      
-    } catch (supabaseError) {
-      console.error('Error in Supabase OTP verification:', supabaseError);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to verify OTP',
-        details: supabaseError.message
-      });
+
+    if (Date.now() > record.expiresAt) {
+      otpStore.delete(phone);
+      return res.status(400).json({ success: false, error: 'OTP expired' });
     }
-    
+
+    if (record.code !== String(otp)) {
+      return res.status(400).json({ success: false, error: 'Invalid OTP' });
+    }
+
+    // One-time use
+    otpStore.delete(phone);
+    return res.json({ success: true, message: 'OTP verified successfully' });
   } catch (error) {
     console.error('OTP Verification Error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Internal server error during OTP verification',
-      details: error.message
-    });
+    res.status(500).json({ success: false, error: 'Internal server error during OTP verification', details: error.message });
   }
 });
 
-// Admin create token
-app.post('/api/admin/token', async (req, res) => {
-  try {
-    const { gender, service, name, mobile } = req.body;
-    const tokenNumber = await getNextTokenNumber();
-    const token = await Token.create({ gender, service, name, mobile, tokenNumber });
-
-    io.emit('new-token', token);
-    res.json({ tokenNumber });
-  } catch (error) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
+// Admin create token - disabled (Token model not configured)
+// app.post('/api/admin/token', async (req, res) => {
+//   return res.status(501).json({ error: 'Not implemented' });
+// });
 
 // Socket connection
 io.on('connection', (socket) => {
