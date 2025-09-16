@@ -86,7 +86,7 @@ const TokenProvider = ({ children }) => {
     }
   };
 
-  // Add a new token after OTP verification
+  // Add a new token
   const addToken = async (tokenData) => {
     const { gender, service, name, mobile } = tokenData;
     const tableName = `${gender}_tokens`;
@@ -106,7 +106,7 @@ const TokenProvider = ({ children }) => {
           mobile, 
           service, 
           status: 'waiting',
-          otp: '123456',
+          otp: 'N/A',
           otp_verified: true
         }])
         .select()
@@ -130,45 +130,6 @@ const TokenProvider = ({ children }) => {
     }
   };
 
-  // Verify OTP - This is now handled by Supabase Auth, keeping for backward compatibility
-  const verifyOTP = async (tokenId, userOTP) => {
-    try {
-      setLoading(true);
-      
-      // Find the token by ID
-      const token = tokens.find(t => t.id === tokenId);
-      if (!token) throw new Error('Token not found');
-      
-      // In a real app, we would verify the OTP with Supabase Auth
-      // For now, we'll just mark it as verified
-      const tableName = `${token.gender}_tokens`;
-      const { data: updatedToken, error } = await supabase
-        .from(tableName)
-        .update({ otp_verified: true })
-        .eq('id', tokenId)
-        .select()
-        .single();
-      
-      if (error) throw error;
-      
-      // Update the local state
-      setTokens(prev => 
-        prev.map(t => 
-          t.id === tokenId 
-            ? { ...t, otp_verified: true, ...updatedToken } 
-            : t
-        )
-      );
-      
-      return { ...updatedToken, gender: token.gender };
-    } catch (err) {
-      console.error('Error verifying OTP:', err);
-      setError(err.message);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // Get waiting tokens for a specific gender
   const getWaitingTokens = async (gender) => {
@@ -360,11 +321,11 @@ const TokenProvider = ({ children }) => {
       loading,
       error,
       addToken,
-      verifyOTP,
       serveToken,
       serveNextToken,
       getCurrentToken,
       getRecentToken,
+      getWaitingTokens,
       fetchTokens,
       setError
     }),
@@ -373,11 +334,11 @@ const TokenProvider = ({ children }) => {
       loading,
       error,
       addToken,
-      verifyOTP,
       serveToken,
       serveNextToken,
       getCurrentToken,
       getRecentToken,
+      getWaitingTokens,
       fetchTokens
     ]
   );

@@ -339,39 +339,6 @@ const AdminPanel = () => {
               )}
             </Box>
             
-            {/* Next in Queue */}
-            {getNextInQueue('male') && (
-              <Box sx={{ 
-                p: 2, 
-                bgcolor: 'grey.100', 
-                borderRadius: 2,
-                textAlign: 'left',
-                mb: 2
-              }}>
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                  Next in Queue
-                </Typography>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Box>
-                    <Typography variant="h6">
-                      M{getNextInQueue('male').token_number}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {getNextInQueue('male').name}
-                    </Typography>
-                  </Box>
-                  <Button 
-                    variant="contained" 
-                    color="primary"
-                    size="small"
-                    onClick={() => handleServeToken(getNextInQueue('male').id, 'male')}
-                    disabled={loading}
-                  >
-                    {loading ? 'Processing...' : 'Serve Next'}
-                  </Button>
-                </Box>
-              </Box>
-            )}
             
             <Typography variant="caption" color="text.secondary">
               {waitingTokens.male.length} tokens waiting
@@ -381,36 +348,31 @@ const AdminPanel = () => {
           {waitingTokens.male.length > 0 && (
             <Box sx={{ mt: 3 }}>
               <Typography variant="subtitle2" gutterBottom>Next in Queue:</Typography>
-              {waitingTokens.male.slice(0, 3).map((token, index) => (
-                <Box 
-                  key={token.id} 
-                  sx={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    py: 1,
-                    px: 2,
-                    bgcolor: index === 0 ? 'rgba(25, 118, 210, 0.08)' : 'transparent',
-                    borderRadius: 1,
-                    mb: 1
-                  }}
-                >
-                  <Box>
-                    <Typography variant="subtitle2">M{token.token_number}</Typography>
-                    <Typography variant="body2" color="text.secondary">{token.name}</Typography>
-                  </Box>
-                  {index === 0 && (
-                    <Button 
-                      variant="contained" 
-                      size="small"
-                      onClick={() => handleServeToken(token.id, 'male')}
-                      disabled={loading}
-                    >
-                      {loading ? 'Processing...' : 'Serve Next'}
-                    </Button>
-                  )}
+              <Box 
+                sx={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  py: 1,
+                  px: 2,
+                  bgcolor: 'rgba(25, 118, 210, 0.08)',
+                  borderRadius: 1,
+                  mb: 1
+                }}
+              >
+                <Box>
+                  <Typography variant="subtitle2">M{waitingTokens.male[0].token_number}</Typography>
+                  <Typography variant="body2" color="text.secondary">{waitingTokens.male[0].name}</Typography>
                 </Box>
-              ))}
+                <Button 
+                  variant="contained" 
+                  size="small"
+                  onClick={() => handleServeToken(waitingTokens.male[0].id, 'male')}
+                  disabled={loading}
+                >
+                  {loading ? 'Processing...' : 'Serve Next'}
+                </Button>
+              </Box>
             </Box>
           )}
         </Paper>
@@ -471,39 +433,6 @@ const AdminPanel = () => {
               )}
             </Box>
             
-            {/* Next in Queue */}
-            {getNextInQueue('female') && (
-              <Box sx={{ 
-                p: 2, 
-                bgcolor: 'grey.100', 
-                borderRadius: 2,
-                textAlign: 'left',
-                mb: 2
-              }}>
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                  Next in Queue
-                </Typography>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Box>
-                    <Typography variant="h6">
-                      F{getNextInQueue('female').token_number}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {getNextInQueue('female').name}
-                    </Typography>
-                  </Box>
-                  <Button 
-                    variant="contained" 
-                    color="secondary"
-                    size="small"
-                    onClick={() => handleServeToken(getNextInQueue('female').id, 'female')}
-                    disabled={loading}
-                  >
-                    {loading ? 'Processing...' : 'Serve Next'}
-                  </Button>
-                </Box>
-              </Box>
-            )}
             
             <Typography variant="caption" color="text.secondary">
               {waitingTokens.female.length} tokens waiting
